@@ -23,25 +23,21 @@ def test_frame_name():
     assert frame_name(999999) == "999999"
 
 
-def test_save_frame_redwood(tmp_path: Path):
-    """save_frame grava color e depth nos diretórios corretos."""
-    import open3d as o3d
-
-    sample = o3d.data.SampleRedwoodRGBDImages()
-    color = o3d.io.read_image(sample.color_paths[0])
-    depth = o3d.io.read_image(sample.depth_paths[0])
-
+def test_save_frame_and_intrinsics_roundtrip(tmp_path: Path):
+    """save_frame e write_intrinsics gradam frames e intrínsecos, load_dataset recupera."""
+    color = np.zeros((48, 64, 3), dtype=np.uint8)
+    color[:, :, 0] = 200
+    depth = np.full((48, 64), 1500, dtype=np.uint16)
     save_frame(tmp_path, 0, color, depth)
     save_frame(tmp_path, 1, color, depth)
+    write_intrinsics(tmp_path, 64, 48, 50.0, 50.0, 32.0, 24.0)
 
-    assert (tmp_path / "color" / "000000.jpg").exists()
-    assert (tmp_path / "color" / "000001.jpg").exists()
-    assert (tmp_path / "depth" / "000000.png").exists()
-    assert (tmp_path / "depth" / "000001.png").exists()
-
-    # Verifica que depth é uint16
-    depth_back = np.asarray(o3d.io.read_image(str(tmp_path / "depth" / "000000.png")))
+    ds = load_dataset(tmp_path)
+    assert ds.n_frames == 2
+    assert ds.intrinsic.width == 64
+    depth_back = np.asarray(o3d.io.read_image(str(ds.depth_paths[0])))
     assert depth_back.dtype == np.uint16
+    assert int(depth_back[0, 0]) == 1500
 
 
 def test_write_intrinsics(tmp_path: Path):

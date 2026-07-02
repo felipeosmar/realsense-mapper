@@ -1,5 +1,4 @@
 """Layout do dataset extraído: color/*.jpg, depth/*.png (uint16), intrinsics.json."""
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,15 +13,15 @@ def frame_name(i: int) -> str:
     return f"{i:06d}"
 
 
-def save_frame(root: Path, i: int, color: o3d.geometry.Image, depth: o3d.geometry.Image) -> None:
-    """Salva frame color como JPG e depth como PNG (uint16) no layout rsmapper."""
-    root = Path(root)
+def save_frame(root: Path, i: int, color: np.ndarray, depth: np.ndarray) -> None:
+    """Grava um par color (uint8 HxWx3) / depth (uint16 HxW, mm)."""
     (root / "color").mkdir(parents=True, exist_ok=True)
     (root / "depth").mkdir(parents=True, exist_ok=True)
-
     name = frame_name(i)
-    o3d.io.write_image(str(root / "color" / f"{name}.jpg"), color)
-    o3d.io.write_image(str(root / "depth" / f"{name}.png"), depth)
+    o3d.io.write_image(str(root / "color" / f"{name}.jpg"),
+                       o3d.geometry.Image(np.ascontiguousarray(color)))
+    o3d.io.write_image(str(root / "depth" / f"{name}.png"),
+                       o3d.geometry.Image(np.ascontiguousarray(depth)))
 
 
 def write_intrinsics(
