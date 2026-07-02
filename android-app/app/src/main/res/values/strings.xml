@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RealSense Mapper</string>
+    <string name="status_disconnected">Câmera desconectada — conecte a D435i via USB</string>
+    <string name="status_connected">Câmera conectada</string>
+    <string name="status_streaming">Preview ativo</string>
+    <string name="status_recording">Gravando…</string>
+    <string name="warn_usb2">Porta USB 2.0 detectada — qualidade reduzida</string>
+    <string name="warn_low_storage">Pouco espaço em disco</string>
+    <string name="warn_storage_stop">Espaço crítico — gravação interrompida</string>
+    <string name="warn_low_fps">Taxa de frames baixa — verifique cabo/porta USB</string>
+    <string name="btn_record">Gravar</string>
+    <string name="btn_stop">Parar</string>
+    <string name="title_scans">Scans gravados</string>
+    <string name="action_share">Compartilhar</string>
+    <string name="action_delete">Apagar</string>
+    <string name="msg_scan_saved">Scan salvo: %1$s</string>
+    <string name="msg_scan_interrupted">Gravação interrompida — o arquivo foi salvo até este ponto</string>
+</resources>
