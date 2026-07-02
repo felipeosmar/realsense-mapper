@@ -1,0 +1,6 @@
+open3d>=0.18
+pyrealsense2>=2.54
+numpy
+pyyaml
+trimesh
+pytest
