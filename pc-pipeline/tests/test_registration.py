@@ -56,3 +56,23 @@ def test_register_single_fragment(bunny, tmp_path: Path):
     pg = register_fragments([tmp_path / "fragment_000.ply"], Config())
     assert len(pg.nodes) == 1
     np.testing.assert_allclose(pg.nodes[0].pose, np.identity(4))
+
+
+def test_register_three_fragments(bunny, tmp_path: Path):
+    t1 = _small_transform()
+    t2 = t1 @ t1  # pose do fragmento 2 no mundo (dois passos)
+    f0 = o3d.geometry.PointCloud(bunny)
+    f1 = o3d.geometry.PointCloud(bunny)
+    f1.transform(np.linalg.inv(t1))
+    f2 = o3d.geometry.PointCloud(bunny)
+    f2.transform(np.linalg.inv(t2))
+    paths = []
+    for i, f in enumerate((f0, f1, f2)):
+        p = tmp_path / f"fragment_{i:03d}.ply"
+        o3d.io.write_point_cloud(str(p), f)
+        paths.append(p)
+
+    pg = register_fragments(paths, Config())
+    assert len(pg.nodes) == 3
+    assert np.linalg.norm(pg.nodes[1].pose[:3, 3] - t1[:3, 3]) < 0.01
+    assert np.linalg.norm(pg.nodes[2].pose[:3, 3] - t2[:3, 3]) < 0.01

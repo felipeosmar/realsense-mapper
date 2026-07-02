@@ -68,7 +68,7 @@ def register_fragments(fragment_plys: list[Path], cfg: Config) -> reg.PoseGraph:
             adjacent = t == s + 1
             if adjacent:
                 trans, info = pairwise_icp(pcds[s], pcds[t], cfg.voxel_size, np.identity(4))
-                odom = np.linalg.inv(trans) @ odom
+                odom = trans @ odom
                 pg.nodes.append(reg.PoseGraphNode(np.linalg.inv(odom)))
                 pg.edges.append(reg.PoseGraphEdge(s, t, trans, info, uncertain=False))
             else:
