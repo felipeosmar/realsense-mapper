@@ -1,0 +1,7 @@
+# Configuração do pipeline de reconstrução — defaults calibrados para salas.
+voxel_size: 0.01              # tamanho do voxel TSDF em metros
+frames_per_fragment: 100      # frames por fragmento na fase de odometria
+keyframe_gap: 5               # intervalo de keyframes p/ loop closure interno
+depth_scale: 1000.0           # unidades de depth por metro (D435i = 1000)
+depth_max: 3.0                # profundidade máxima considerada (metros)
+decimate_target_triangles: 500000  # alvo de simplificação da malha final
