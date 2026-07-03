@@ -914,25 +914,28 @@ class RsCameraManager(private val listener: Listener) {
         val colorizer = Colorizer()
         var frames = 0
         var windowStart = System.currentTimeMillis()
-        while (streaming) {
-            try {
-                FrameReleaser().use { fr ->
-                    val frameSet = pipeline?.waitForFrames()?.releaseWith(fr) ?: return
-                    val colorized = frameSet.applyFilter(colorizer).releaseWith(fr)
-                    previewView?.upload(colorized)
+        try {
+            while (streaming) {
+                try {
+                    FrameReleaser().use { fr ->
+                        val frameSet = pipeline?.waitForFrames()?.releaseWith(fr) ?: return
+                        val colorized = frameSet.applyFilter(colorizer).releaseWith(fr)
+                        previewView?.upload(colorized)
+                    }
+                    frames++
+                    val now = System.currentTimeMillis()
+                    if (now - windowStart >= 1000) {
+                        listener.onFps(frames * 1000f / (now - windowStart))
+                        frames = 0
+                        windowStart = now
+                    }
+                } catch (e: Exception) {
+                    if (streaming) Log.w(TAG, "Frame perdido: ${e.message}")
                 }
-                frames++
-                val now = System.currentTimeMillis()
-                if (now - windowStart >= 1000) {
-                    listener.onFps(frames * 1000f / (now - windowStart))
-                    frames = 0
-                    windowStart = now
-                }
-            } catch (e: Exception) {
-                if (streaming) Log.w(TAG, "Frame perdido: ${e.message}")
             }
+        } finally {
+            colorizer.close()  // fecha o recurso JNI mesmo com return non-local
         }
-        colorizer.close()
     }
 }
 ```
