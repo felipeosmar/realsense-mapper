@@ -121,15 +121,24 @@ class RsCameraManager(private val listener: Listener) {
         }
     }
 
+    // Todo o corpo roda na lifecycleExecutor (via runOnLifecycle), incluindo a
+    // leitura-modificação-escrita de `state`. Isso serializa onEvent com as
+    // demais operações de ciclo de vida (start/stop/restart) numa única thread,
+    // eliminando a corrida entre a thread de callback USB, a UI thread (init)
+    // e a própria executor (STREAM_STARTED/RECORD_*). Chamadas que já estão na
+    // executor (ex.: startStreaming -> onEvent(STREAM_STARTED)) apenas reenfileiram
+    // via submit (fire-and-forget, sem espera bloqueante), o que preserva a ordem
+    // FIFO dos eventos sem risco de deadlock.
     private fun onEvent(event: CameraEvent) {
-        val newState = nextState(state, event)
-        if (newState == state) return
-        state = newState
-        listener.onStateChanged(state)
-        when {
-            event == CameraEvent.ATTACHED && previewView != null ->
-                runOnLifecycle { startStreaming(record = false) }
-            event == CameraEvent.DETACHED -> runOnLifecycle { stopStreaming() }
+        runOnLifecycle {
+            val newState = nextState(state, event)
+            if (newState == state) return@runOnLifecycle
+            state = newState
+            listener.onStateChanged(state)
+            when {
+                event == CameraEvent.ATTACHED && previewView != null -> startStreaming(record = false)
+                event == CameraEvent.DETACHED -> stopStreaming()
+            }
         }
     }
 
