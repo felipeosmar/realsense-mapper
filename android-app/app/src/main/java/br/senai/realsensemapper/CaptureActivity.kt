@@ -49,6 +49,13 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
         camera.attachPreview(findViewById<GLRsSurfaceView>(R.id.preview))
 
         recordButton.setOnClickListener { toggleRecording() }
+        findViewById<FloatingActionButton>(R.id.scansButton).apply {
+            visibility = View.VISIBLE
+            setOnClickListener {
+                startActivity(android.content.Intent(this@CaptureActivity,
+                    ScansActivity::class.java))
+            }
+        }
         ui.post(ticker)
     }
 
