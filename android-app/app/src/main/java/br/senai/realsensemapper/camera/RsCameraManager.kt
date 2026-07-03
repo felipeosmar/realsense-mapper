@@ -18,8 +18,15 @@ import com.intel.realsense.librealsense.RsContext
 import com.intel.realsense.librealsense.StreamFormat
 import com.intel.realsense.librealsense.StreamType
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 private const val TAG = "RsCameraManager"
+
+// Tempo limite de waitForFrames(): evita que a thread rs-stream fique bloqueada
+// indefinidamente num frame nativo enquanto stopStreaming() tenta stop()/close()
+// no mesmo Pipeline a partir da lifecycleExecutor.
+private const val WAIT_FOR_FRAMES_TIMEOUT_MS = 1000
 
 class RsCameraManager(private val listener: Listener) {
 
@@ -29,8 +36,18 @@ class RsCameraManager(private val listener: Listener) {
         fun onFps(fps: Float)
     }
 
+    // Lido tanto pela UI thread (CaptureActivity) quanto por esta classe;
+    // mutado a partir de threads diferentes (callback USB, lifecycleExecutor).
+    @Volatile
     var state: CameraState = CameraState.DISCONNECTED
         private set
+
+    // Todas as operações que tocam o pipeline nativo (start/stop/restart) são
+    // serializadas nesta única thread. Isso remove o risco de ANR (pipeline.start()
+    // bloqueante rodando na UI thread a partir de um clique) e evita que duas
+    // chamadas de ciclo de vida (ex.: attach + record) rodem entrelaçadas sobre o
+    // mesmo Pipeline/Config nativos.
+    private val lifecycleExecutor = Executors.newSingleThreadExecutor()
 
     private var rsContext: RsContext? = null
     private var pipeline: Pipeline? = null
@@ -55,27 +72,53 @@ class RsCameraManager(private val listener: Listener) {
 
     fun attachPreview(view: GLRsSurfaceView) {
         previewView = view
-        if (state == CameraState.CONNECTED) startStreaming(record = false)
+        runOnLifecycle {
+            if (state == CameraState.CONNECTED) startStreaming(record = false)
+        }
     }
 
     fun startRecording(file: File) {
         if (state != CameraState.STREAMING) return
         recordFile = file
-        restartPipeline(record = true)
-        onEvent(CameraEvent.RECORD_STARTED)
+        runOnLifecycle {
+            restartPipeline(record = true)
+            onEvent(CameraEvent.RECORD_STARTED)
+        }
     }
 
     fun stopRecording() {
         if (state != CameraState.RECORDING) return
         recordFile = null
-        restartPipeline(record = false)
-        onEvent(CameraEvent.RECORD_STOPPED)
+        runOnLifecycle {
+            restartPipeline(record = false)
+            onEvent(CameraEvent.RECORD_STOPPED)
+        }
     }
 
     fun shutdown() {
-        stopStreaming()
-        rsContext?.close()
-        rsContext = null
+        runOnLifecycle {
+            stopStreaming()
+            rsContext?.close()
+            rsContext = null
+        }
+        // Novas submissões passam a ser rejeitadas; as já enfileiradas (a de cima)
+        // ainda rodam até o fim antes da thread da executor encerrar.
+        lifecycleExecutor.shutdown()
+    }
+
+    /** Agenda [block] na lifecycleExecutor; nunca bloqueia a thread chamadora. */
+    private fun runOnLifecycle(block: () -> Unit) {
+        try {
+            lifecycleExecutor.submit {
+                try {
+                    block()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Erro no ciclo de vida do pipeline", e)
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            Log.w(TAG, "lifecycleExecutor encerrada, ignorando operação de ciclo de vida")
+        }
     }
 
     private fun onEvent(event: CameraEvent) {
@@ -85,8 +128,8 @@ class RsCameraManager(private val listener: Listener) {
         listener.onStateChanged(state)
         when {
             event == CameraEvent.ATTACHED && previewView != null ->
-                startStreaming(record = false)
-            event == CameraEvent.DETACHED -> stopStreaming()
+                runOnLifecycle { startStreaming(record = false) }
+            event == CameraEvent.DETACHED -> runOnLifecycle { stopStreaming() }
         }
     }
 
@@ -112,11 +155,16 @@ class RsCameraManager(private val listener: Listener) {
         if (record) recordFile?.let { enableRecordToFile(it.absolutePath) }
     }
 
+    // Só deve ser chamada a partir da lifecycleExecutor.
     private fun startStreaming(record: Boolean) {
         if (streaming) return
         detectProfile()
         try {
-            pipeline = Pipeline().also { it.start(buildConfig(record)) }
+            val newPipeline = Pipeline()
+            // Config só é necessário durante o start(); fechamos o handle nativo
+            // dele assim que o pipeline já absorveu a configuração.
+            buildConfig(record).use { config -> newPipeline.start(config) }
+            pipeline = newPipeline
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao iniciar pipeline", e)
             pipeline = null
@@ -127,18 +175,28 @@ class RsCameraManager(private val listener: Listener) {
         streamThread = Thread(::streamLoop, "rs-stream").also { it.start() }
     }
 
+    // Só deve ser chamada a partir da lifecycleExecutor.
     private fun stopStreaming() {
         streaming = false
+        // waitForFrames() tem timeout limitado (ver streamLoop), então a thread
+        // rs-stream sai do wait nativo em no máximo WAIT_FOR_FRAMES_TIMEOUT_MS;
+        // o join abaixo garante que ela já saiu do loop antes de stop()/close().
         streamThread?.join(3000)
         streamThread = null
         try {
-            pipeline?.stop()  // fecha também o gravador do .bag, mantendo-o válido
+            pipeline?.stop() // fecha também o gravador do .bag, mantendo-o válido
         } catch (e: Exception) {
             Log.w(TAG, "Erro ao parar pipeline", e)
+        }
+        try {
+            pipeline?.close() // libera o handle nativo do Pipeline
+        } catch (e: Exception) {
+            Log.w(TAG, "Erro ao fechar pipeline", e)
         }
         pipeline = null
     }
 
+    // Só deve ser chamada a partir da lifecycleExecutor.
     private fun restartPipeline(record: Boolean) {
         stopStreaming()
         startStreaming(record)
@@ -152,7 +210,8 @@ class RsCameraManager(private val listener: Listener) {
             while (streaming) {
                 try {
                     FrameReleaser().use { fr ->
-                        val frameSet = pipeline?.waitForFrames()?.releaseWith(fr) ?: return
+                        val frameSet = pipeline?.waitForFrames(WAIT_FOR_FRAMES_TIMEOUT_MS)
+                            ?.releaseWith(fr) ?: return
                         val colorized = frameSet.applyFilter(colorizer).releaseWith(fr)
                         previewView?.upload(colorized)
                     }
@@ -164,11 +223,12 @@ class RsCameraManager(private val listener: Listener) {
                         windowStart = now
                     }
                 } catch (e: Exception) {
+                    // Inclui timeouts de waitForFrames(), esperados e benignos.
                     if (streaming) Log.w(TAG, "Frame perdido: ${e.message}")
                 }
             }
         } finally {
-            colorizer.close()  // fecha o recurso JNI mesmo com return non-local
+            colorizer.close() // fecha o recurso JNI mesmo com return non-local
         }
     }
 }

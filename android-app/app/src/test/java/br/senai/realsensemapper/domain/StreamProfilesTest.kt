@@ -22,7 +22,8 @@ class StreamProfilesTest {
 
     @Test fun usb2_profile_matches_spec() {
         val p = StreamProfiles.USB2
-        assertEquals(640, p.depthWidth); assertEquals(480, p.colorHeight)
+        assertEquals(640, p.depthWidth); assertEquals(480, p.depthHeight)
+        assertEquals(640, p.colorWidth); assertEquals(480, p.colorHeight)
         assertEquals(15, p.fps)
     }
 }

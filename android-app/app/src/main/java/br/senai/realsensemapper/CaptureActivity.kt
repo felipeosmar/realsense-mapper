@@ -34,6 +34,7 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
     private var recordingStartMs = 0L
     private var usbWarning: String? = null
     private var lowFps = false
+    private var activeProfile: StreamProfile? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -149,13 +150,19 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
     }
 
     override fun onUsbProfile(profile: StreamProfile, descriptor: String?) = runOnUiThread {
+        activeProfile = profile
         usbWarning = if (profile == StreamProfiles.USB2)
             getString(R.string.warn_usb2) else null
         showWarnings(null)
     }
 
     override fun onFps(fps: Float) = runOnUiThread {
-        lowFps = fps < 20f && camera.state >= CameraState.STREAMING
+        // Limiar relativo ao fps alvo do perfil ativo (USB3@30 ou USB2@15), não
+        // um valor fixo — senão o fallback USB2 (15 fps por design) sempre
+        // disparava o aviso de "taxa de frames baixa".
+        val target = activeProfile
+        lowFps = target != null && camera.state >= CameraState.STREAMING &&
+            fps < target.fps * 0.7f
         showWarnings(null)
     }
 }
