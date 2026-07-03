@@ -61,7 +61,7 @@ class ScansActivity : AppCompatActivity() {
     }
 }
 
-class ScanAdapter(
+private class ScanAdapter(
     val onShare: (ScanInfo) -> Unit,
     val onDelete: (ScanInfo) -> Unit,
 ) : RecyclerView.Adapter<ScanAdapter.Holder>() {
