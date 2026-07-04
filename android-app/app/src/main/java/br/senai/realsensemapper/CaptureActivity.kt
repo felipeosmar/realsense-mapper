@@ -1,5 +1,7 @@
 package br.senai.realsensemapper
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -7,7 +9,9 @@ import android.os.StatFs
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import br.senai.realsensemapper.camera.RsCameraManager
 import br.senai.realsensemapper.domain.CameraState
 import br.senai.realsensemapper.domain.ScanRepository
@@ -39,6 +43,21 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
     private var lowFps = false
     private var activeProfile: StreamProfile? = null
 
+    // A D435i é UVC: o Android 14+ só deixa o librealsense abrir o dispositivo USB
+    // se o app tiver a permissão de runtime CAMERA. Pedimos ela antes de init().
+    private val requestCameraPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                logger.i("Perm", "CAMERA concedida — inicializando câmera")
+                camera.init(this)
+            } else {
+                logger.w("Perm", "CAMERA negada — sem ela o librealsense não abre a D435i (UVC)")
+                statusText.setText(R.string.status_disconnected)
+                Snackbar.make(recordButton, R.string.warn_camera_permission,
+                    Snackbar.LENGTH_INDEFINITE).show()
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_capture)
@@ -53,8 +72,8 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
 
         repo = ScanRepository(File(getExternalFilesDir(null), "scans"))
         camera = RsCameraManager(this, logger)
-        camera.init(this)
         camera.attachPreview(findViewById<GLRsSurfaceView>(R.id.preview))
+        ensureCameraPermissionThenInit()
 
         recordButton.setOnClickListener { toggleRecording() }
         findViewById<FloatingActionButton>(R.id.scansButton).apply {
@@ -72,6 +91,18 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
         }
 
         ui.post(ticker)
+    }
+
+    private fun ensureCameraPermissionThenInit() {
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            logger.i("Perm", "CAMERA já concedida — inicializando câmera")
+            camera.init(this)
+        } else {
+            logger.i("Perm", "Solicitando permissão CAMERA (exigida p/ UVC no Android 14+)")
+            requestCameraPermission.launch(Manifest.permission.CAMERA)
+        }
     }
 
     override fun onDestroy() {

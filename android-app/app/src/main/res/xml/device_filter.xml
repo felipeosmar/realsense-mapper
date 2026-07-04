@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Filtro de dispositivos USB para as câmeras Intel RealSense.
+  vendor-id 32902 = 0x8086 (Intel) — cobre toda a família (D435i, D455, etc.).
+  Referenciado pela CaptureActivity via meta-data USB_DEVICE_ATTACHED: faz o
+  Android oferecer "abrir com RealSense Mapper" ao plugar a câmera e, ao marcar
+  "sempre", concede a permissão USB persistente que o librealsense precisa para
+  enumerar o dispositivo. Sem isso o app vê 0 dispositivos mesmo com a câmera
+  fisicamente conectada (o SO não roteia o device nem dá permissão ao app).
+-->
+<resources>
+    <usb-device vendor-id="32902" />
+</resources>

@@ -9,6 +9,7 @@
     <string name="warn_low_storage">Pouco espaço em disco</string>
     <string name="warn_storage_stop">Espaço crítico — gravação interrompida</string>
     <string name="warn_low_fps">Taxa de frames baixa — verifique cabo/porta USB</string>
+    <string name="warn_camera_permission">Permissão de câmera negada — necessária para abrir a D435i (USB). Conceda em Configurações › Apps › RealSense Mapper › Permissões.</string>
     <string name="btn_record">Gravar</string>
     <string name="btn_stop">Parar</string>
     <string name="title_scans">Scans gravados</string>

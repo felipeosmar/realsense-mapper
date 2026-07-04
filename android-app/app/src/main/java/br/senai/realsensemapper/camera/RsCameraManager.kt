@@ -176,15 +176,29 @@ class RsCameraManager(
         listener.onUsbProfile(profile, descriptor)
     }
 
-    private fun buildConfig(record: Boolean): Config = Config().apply {
+    // Uma "receita" de streams a tentar. Da mais rica (depth+color+IMU) para a mais
+    // simples (só depth): sobre USB 2.0 a banda não comporta o conjunto completo e o
+    // start() falha com "Couldn't resolve requests"; caímos para a próxima até uma
+    // resolver. Em USB 3.0 a primeira já vinga, preservando color e IMU.
+    private data class StreamRecipe(val name: String, val color: Boolean, val imu: Boolean)
+
+    private val streamRecipes = listOf(
+        StreamRecipe("depth+color+IMU", color = true, imu = true),
+        StreamRecipe("depth+color", color = true, imu = false),
+        StreamRecipe("depth", color = false, imu = false),
+    )
+
+    private fun buildConfig(recipe: StreamRecipe, record: Boolean): Config = Config().apply {
         enableStream(StreamType.DEPTH, -1, profile.depthWidth, profile.depthHeight,
             StreamFormat.Z16, profile.fps)
-        enableStream(StreamType.COLOR, -1, profile.colorWidth, profile.colorHeight,
+        if (recipe.color) enableStream(StreamType.COLOR, -1, profile.colorWidth, profile.colorHeight,
             StreamFormat.RGB8, profile.fps)
-        enableStream(StreamType.GYRO, -1, 0, 0,
-            StreamFormat.MOTION_XYZ32F, StreamProfiles.GYRO_FPS)
-        enableStream(StreamType.ACCEL, -1, 0, 0,
-            StreamFormat.MOTION_XYZ32F, StreamProfiles.ACCEL_FPS)
+        if (recipe.imu) {
+            enableStream(StreamType.GYRO, -1, 0, 0,
+                StreamFormat.MOTION_XYZ32F, StreamProfiles.GYRO_FPS)
+            enableStream(StreamType.ACCEL, -1, 0, 0,
+                StreamFormat.MOTION_XYZ32F, StreamProfiles.ACCEL_FPS)
+        }
         if (record) recordFile?.let { enableRecordToFile(it.absolutePath) }
     }
 
@@ -193,19 +207,30 @@ class RsCameraManager(
         if (streaming) return
         detectProfile()
         logI("Iniciando pipeline (record=$record)")
-        try {
-            val newPipeline = Pipeline()
-            // Config só é necessário durante o start(); fechamos o handle nativo
-            // dele assim que o pipeline já absorveu a configuração.
-            buildConfig(record).use { config -> newPipeline.start(config) }
-            pipeline = newPipeline
-        } catch (e: Exception) {
-            logE("Falha ao iniciar pipeline", e)
+        var started: Pipeline? = null
+        var lastError: Exception? = null
+        for (recipe in streamRecipes) {
+            // Uma Pipeline nova por tentativa: se start() falhar o handle nativo fica
+            // inutilizável, então descartamos e criamos outro para a próxima receita.
+            val candidate = Pipeline()
+            try {
+                buildConfig(recipe, record).use { config -> candidate.start(config) }
+                started = candidate
+                logI("Pipeline iniciado com a config '${recipe.name}' (record=$record)")
+                break
+            } catch (e: Exception) {
+                lastError = e
+                logW("Config '${recipe.name}' não resolveu — tentando a próxima", e)
+                try { candidate.close() } catch (_: Exception) {}
+            }
+        }
+        if (started == null) {
+            logE("Falha ao iniciar pipeline — nenhuma config resolveu", lastError)
             pipeline = null
             return
         }
+        pipeline = started
         streaming = true
-        logI("Pipeline iniciado com sucesso (record=$record)")
         if (state == CameraState.CONNECTED) onEvent(CameraEvent.STREAM_STARTED)
         streamThread = Thread(::streamLoop, "rs-stream").also { it.start() }
     }

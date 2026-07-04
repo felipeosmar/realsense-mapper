@@ -2,6 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
 
+    <!-- A D435i é um dispositivo USB Video Class (UVC). A partir do Android 14 o
+         framework exige a permissão de runtime CAMERA para abrir câmeras USB via
+         UsbManager.openDevice — sem ela o librealsense recebe SecurityException e
+         enumera 0 dispositivos. A câmera é USB externa, não a do aparelho. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <application
         android:label="@string/app_name"
         android:theme="@style/Theme.RealSenseMapper">
@@ -13,6 +20,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Ao plugar uma câmera Intel (vendor 0x8086) o Android oferece abrir
+                 este app; marcando "sempre" concede a permissão USB persistente
+                 que o librealsense precisa para enumerar a D435i. Sem este filtro
+                 o app vê 0 dispositivos mesmo com a câmera conectada. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
 
         <activity
