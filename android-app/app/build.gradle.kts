@@ -10,12 +10,16 @@ android {
     defaultConfig {
         applicationId = "br.senai.realsensemapper"
         minSdk = 26
-        // targetSdk 33 (não 35) de propósito: o AAR do librealsense 2.54.2
-        // registra um BroadcastReceiver interno (detecção de plug/unplug USB)
-        // sem a flag RECEIVER_EXPORTED/NOT_EXPORTED. Com targetSdk >= 34 o
-        // Android 14 exige essa flag e lança SecurityException em RsContext.init.
-        // Como o receiver está dentro do AAR (binário), a saída é ficar em 33.
-        targetSdk = 33
+        // targetSdk 30 (não 35) de propósito: o AAR do librealsense 2.54.2 tem
+        // duas incompatibilidades com Android moderno, em portões de API distintos:
+        //   - registra um BroadcastReceiver sem RECEIVER_EXPORTED/NOT_EXPORTED
+        //     -> SecurityException em RsContext.init com targetSdk >= 34;
+        //   - cria um PendingIntent sem FLAG_IMMUTABLE/MUTABLE ao pedir permissão
+        //     USB (UsbUtilities.grantUsbPermissions) -> IllegalArgumentException
+        //     ao conectar a câmera com targetSdk >= 31.
+        // Ambos estão dentro do AAR (binário); ficar em targetSdk 30 evita os dois.
+        // Correção definitiva: reconstruir o AAR de um librealsense mais novo.
+        targetSdk = 30
         versionCode = 1
         versionName = "0.1"
     }
