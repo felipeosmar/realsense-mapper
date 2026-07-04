@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.appbar.MaterialToolbar
 import br.senai.realsensemapper.domain.ScanInfo
 import br.senai.realsensemapper.domain.ScanRepository
 import br.senai.realsensemapper.domain.formatBytes
@@ -22,10 +23,13 @@ class ScansActivity : AppCompatActivity() {
 
     private lateinit var repo: ScanRepository
     private lateinit var adapter: ScanAdapter
+    private lateinit var emptyText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scans)
+        findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener { finish() }
+        emptyText = findViewById(R.id.emptyText)
         repo = ScanRepository(File(getExternalFilesDir(null), "scans"))
         adapter = ScanAdapter(::shareScan, ::confirmDelete)
         findViewById<RecyclerView>(R.id.scanList).apply {
@@ -36,7 +40,13 @@ class ScansActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        adapter.submit(repo.listScans())
+        refresh()
+    }
+
+    private fun refresh() {
+        val scans = repo.listScans()
+        adapter.submit(scans)
+        emptyText.visibility = if (scans.isEmpty()) View.VISIBLE else View.GONE
     }
 
     private fun shareScan(scan: ScanInfo) {
@@ -54,7 +64,7 @@ class ScansActivity : AppCompatActivity() {
             .setMessage(getString(R.string.action_delete) + " ${scan.name}?")
             .setPositiveButton(R.string.action_delete) { _, _ ->
                 repo.delete(scan)
-                adapter.submit(repo.listScans())
+                refresh()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

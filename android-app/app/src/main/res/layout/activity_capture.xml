@@ -6,6 +6,7 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
+    <!-- Preview ocupa a tela toda, atrás de tudo -->
     <com.intel.realsense.librealsense.GLRsSurfaceView
         android:id="@+id/preview"
         android:layout_width="0dp"
@@ -15,61 +16,107 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Gradiente no topo: garante leitura dos textos sobre a imagem -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="120dp"
+        android:background="@drawable/scrim_top"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Gradiente na base: destaca os botões de ação -->
+    <View
+        android:layout_width="0dp"
+        android:layout_height="160dp"
+        android:background="@drawable/scrim_bottom"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Status (esquerda) — não invade o chip REC à direita -->
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:background="#88000000"
-        android:padding="8dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/bg_status_chip"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="8dp"
         android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:maxLines="2"
+        android:ellipsize="end"
         android:text="@string/status_disconnected"
+        app:layout_constrainedWidth="true"
+        app:layout_constraintHorizontal_bias="0"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/recordInfo" />
 
-    <TextView
-        android:id="@+id/warnText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:background="#88AA0000"
-        android:padding="8dp"
-        android:textColor="#FFFFFF"
-        android:visibility="gone"
-        app:layout_constraintTop_toBottomOf="@id/statusText"
-        app:layout_constraintStart_toStartOf="parent" />
-
+    <!-- Indicador REC / cronômetro (direita) -->
     <TextView
         android:id="@+id/recordInfo"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:background="#88000000"
-        android:padding="8dp"
-        android:textColor="#FF5252"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        android:background="@drawable/bg_rec_chip"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="8dp"
+        android:textColor="#FFFFFF"
         android:textStyle="bold"
+        android:textSize="13sp"
         android:visibility="gone"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Faixa de aviso: largura total abaixo do status, some quando não há aviso -->
+    <TextView
+        android:id="@+id/warnText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_warn_banner"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="10dp"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/statusText"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Ação principal: gravar (centralizada na base) -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/recordButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="24dp"
+        android:layout_marginBottom="28dp"
         android:contentDescription="@string/btn_record"
         app:srcCompat="@android:drawable/ic_media_play"
+        app:maxImageSize="32dp"
+        app:fabCustomSize="68dp"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Ação secundária: lista de scans (mini FAB à direita) -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/scansButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="24dp"
+        android:layout_marginEnd="28dp"
         android:visibility="gone"
         android:contentDescription="@string/title_scans"
         app:srcCompat="@android:drawable/ic_menu_agenda"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:fabSize="mini"
+        app:backgroundTint="#33FFFFFF"
+        app:tint="#FFFFFF"
+        app:layout_constraintTop_toTopOf="@id/recordButton"
+        app:layout_constraintBottom_toBottomOf="@id/recordButton"
+        app:layout_constraintEnd_toEndOf="parent" />
 </androidx.constraintlayout.widget.ConstraintLayout>
