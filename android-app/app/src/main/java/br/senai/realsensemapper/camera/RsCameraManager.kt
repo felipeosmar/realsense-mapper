@@ -188,6 +188,13 @@ class RsCameraManager(
         StreamRecipe("depth", color = false, imu = false),
     )
 
+    // Receita que vingou no último start bem-sucedido. Usada para PRIORIZAR a mesma
+    // config na gravação: assim o start com enableRecordToFile acerta na primeira
+    // tentativa e o .bag é aberto uma única vez. Sem isso, a escada tentava
+    // depth+color+IMU (já apontando o mesmo .bag), falhava no USB2 e só a 2ª receita
+    // gravava — o duplo-open deixava o rosbag sem índice (ilegível no PC).
+    @Volatile private var lastGoodRecipe: StreamRecipe? = null
+
     private fun buildConfig(recipe: StreamRecipe, record: Boolean): Config = Config().apply {
         enableStream(StreamType.DEPTH, -1, profile.depthWidth, profile.depthHeight,
             StreamFormat.Z16, profile.fps)
@@ -209,13 +216,17 @@ class RsCameraManager(
         logI("Iniciando pipeline (record=$record)")
         var started: Pipeline? = null
         var lastError: Exception? = null
-        for (recipe in streamRecipes) {
+        // Tenta a última receita boa primeiro (sobretudo na gravação, p/ abrir o .bag
+        // uma vez só), depois as demais na ordem padrão, sem repetir.
+        val ordered = (listOfNotNull(lastGoodRecipe) + streamRecipes).distinct()
+        for (recipe in ordered) {
             // Uma Pipeline nova por tentativa: se start() falhar o handle nativo fica
             // inutilizável, então descartamos e criamos outro para a próxima receita.
             val candidate = Pipeline()
             try {
                 buildConfig(recipe, record).use { config -> candidate.start(config) }
                 started = candidate
+                lastGoodRecipe = recipe
                 logI("Pipeline iniciado com a config '${recipe.name}' (record=$record)")
                 break
             } catch (e: Exception) {
