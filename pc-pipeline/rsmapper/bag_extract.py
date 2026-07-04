@@ -1,10 +1,12 @@
 """Extração de frames alinhados (depth→color) de um .bag do RealSense."""
 import json
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
 
+from rsmapper.bag_reindex import is_indexed, reindex
 from rsmapper.dataset import save_frame, write_intrinsics
 
 
@@ -31,6 +33,16 @@ def extract_bag(bag_path: Path, out_dir: Path) -> ExtractReport:
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Bags gravados pelo app vêm sem índice (o librealsense não finaliza o rosbag
+    # ao parar a gravação). O pyrealsense2 recusaria o arquivo, então reindexamos
+    # para um temporário e lemos dele — transparente para quem chama.
+    bag_path = Path(bag_path)
+    tmp_reindexed: Path | None = None
+    if not is_indexed(bag_path):
+        tmp_reindexed = Path(tempfile.mkdtemp(prefix="rsmapper_reidx_")) / bag_path.name
+        reindex(bag_path, tmp_reindexed)
+        bag_path = tmp_reindexed
 
     pipeline = rs.pipeline()
     config = rs.config()
@@ -64,6 +76,9 @@ def extract_bag(bag_path: Path, out_dir: Path) -> ExtractReport:
         pass  # fim do bag: wait_for_frames estoura timeout
     finally:
         pipeline.stop()
+        if tmp_reindexed is not None:
+            tmp_reindexed.unlink(missing_ok=True)
+            tmp_reindexed.parent.rmdir()
 
     duration = (timestamps[-1] - timestamps[0]) / 1000.0 if len(timestamps) > 1 else 0.0
     report = ExtractReport(frame_count=idx,
