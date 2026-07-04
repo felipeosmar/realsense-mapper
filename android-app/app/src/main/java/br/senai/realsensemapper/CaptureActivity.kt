@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.StatFs
 import android.view.View
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import br.senai.realsensemapper.camera.RsCameraManager
 import br.senai.realsensemapper.domain.CameraState
@@ -15,6 +16,7 @@ import br.senai.realsensemapper.domain.StreamProfile
 import br.senai.realsensemapper.domain.StreamProfiles
 import br.senai.realsensemapper.domain.formatBytes
 import br.senai.realsensemapper.domain.formatDuration
+import br.senai.realsensemapper.util.AppLogger
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.snackbar.Snackbar
 import com.intel.realsense.librealsense.GLRsSurfaceView
@@ -23,6 +25,7 @@ import java.io.File
 class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
 
     private lateinit var camera: RsCameraManager
+    private lateinit var logger: AppLogger
     private lateinit var repo: ScanRepository
     private lateinit var statusText: TextView
     private lateinit var warnText: TextView
@@ -39,13 +42,17 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_capture)
+
+        logger = AppLogger(this)
+        logger.i("Activity", "onCreate — app iniciado")
+
         statusText = findViewById(R.id.statusText)
         warnText = findViewById(R.id.warnText)
         recordInfo = findViewById(R.id.recordInfo)
         recordButton = findViewById(R.id.recordButton)
 
         repo = ScanRepository(File(getExternalFilesDir(null), "scans"))
-        camera = RsCameraManager(this)
+        camera = RsCameraManager(this, logger)
         camera.init(this)
         camera.attachPreview(findViewById<GLRsSurfaceView>(R.id.preview))
 
@@ -57,10 +64,18 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
                     ScansActivity::class.java))
             }
         }
+
+        // Mostra onde os logs deste teste ficam gravados (recuperáveis por MTP).
+        logger.logFile?.let {
+            logger.i("Activity", "Log da sessão: ${it.absolutePath}")
+            Toast.makeText(this, "Log: ${it.absolutePath}", Toast.LENGTH_LONG).show()
+        }
+
         ui.post(ticker)
     }
 
     override fun onDestroy() {
+        logger.i("Activity", "onDestroy")
         ui.removeCallbacksAndMessages(null)
         camera.shutdown()
         super.onDestroy()
@@ -78,11 +93,13 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
                 val file = repo.newScanFile()
                 recordingFile = file
                 recordingStartMs = System.currentTimeMillis()
+                logger.i("Rec", "Iniciando gravação: ${file.name}")
                 camera.startRecording(file)
             }
             CameraState.RECORDING -> {
                 camera.stopRecording()
                 recordingFile?.let {
+                    logger.i("Rec", "Gravação parada: ${it.name} (${formatBytes(it.length())})")
                     Snackbar.make(recordButton,
                         getString(R.string.msg_scan_saved, it.name),
                         Snackbar.LENGTH_LONG).show()
@@ -105,6 +122,7 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
                 val free = StatFs(getExternalFilesDir(null)!!.path).availableBytes
                 when (StorageGuard.check(free)) {
                     StorageGuard.Level.CRITICAL -> {
+                        logger.w("Storage", "Espaço crítico — gravação interrompida (livre=${formatBytes(free)})")
                         camera.stopRecording()
                         recordingFile = null
                         Snackbar.make(recordButton, R.string.warn_storage_stop,
@@ -133,6 +151,7 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
     // --- RsCameraManager.Listener (chamados fora da UI thread) ---
 
     override fun onStateChanged(state: CameraState) = runOnUiThread {
+        logger.i("State", "-> $state")
         statusText.setText(when (state) {
             CameraState.DISCONNECTED -> R.string.status_disconnected
             CameraState.CONNECTED -> R.string.status_connected
@@ -153,6 +172,7 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
         activeProfile = profile
         usbWarning = if (profile == StreamProfiles.USB2)
             getString(R.string.warn_usb2) else null
+        logger.i("USB", "perfil=${if (profile == StreamProfiles.USB2) "USB2" else "USB3"} descriptor=$descriptor")
         showWarnings(null)
     }
 
@@ -163,6 +183,7 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
         val target = activeProfile
         lowFps = target != null && camera.state >= CameraState.STREAMING &&
             fps < target.fps * 0.7f
+        logger.i("FPS", String.format(java.util.Locale.US, "%.1f%s", fps, if (lowFps) " (BAIXO)" else ""))
         showWarnings(null)
     }
 }

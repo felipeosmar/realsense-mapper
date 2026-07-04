@@ -7,6 +7,7 @@ import br.senai.realsensemapper.domain.CameraState
 import br.senai.realsensemapper.domain.StreamProfile
 import br.senai.realsensemapper.domain.StreamProfiles
 import br.senai.realsensemapper.domain.nextState
+import br.senai.realsensemapper.util.AppLogger
 import com.intel.realsense.librealsense.CameraInfo
 import com.intel.realsense.librealsense.Colorizer
 import com.intel.realsense.librealsense.Config
@@ -28,7 +29,10 @@ private const val TAG = "RsCameraManager"
 // no mesmo Pipeline a partir da lifecycleExecutor.
 private const val WAIT_FOR_FRAMES_TIMEOUT_MS = 1000
 
-class RsCameraManager(private val listener: Listener) {
+class RsCameraManager(
+    private val listener: Listener,
+    private val log: AppLogger? = null,
+) {
 
     interface Listener {
         fun onStateChanged(state: CameraState)
@@ -58,15 +62,32 @@ class RsCameraManager(private val listener: Listener) {
     private var recordFile: File? = null
 
     private val deviceListener = object : DeviceListener {
-        override fun onDeviceAttach() = onEvent(CameraEvent.ATTACHED)
-        override fun onDeviceDetach() = onEvent(CameraEvent.DETACHED)
+        override fun onDeviceAttach() {
+            logI("USB: dispositivo conectado (callback)")
+            onEvent(CameraEvent.ATTACHED)
+        }
+        override fun onDeviceDetach() {
+            logI("USB: dispositivo desconectado (callback)")
+            onEvent(CameraEvent.DETACHED)
+        }
     }
+
+    // Encaminham para o AppLogger (arquivo + Logcat) quando presente; caso
+    // contrário, caem no Logcat direto. Assim os testes e usos sem logger
+    // continuam funcionando sem NPE.
+    private fun logI(message: String) = log?.i(TAG, message) ?: run { Log.i(TAG, message); Unit }
+    private fun logW(message: String, e: Throwable? = null) =
+        log?.w(TAG, message, e) ?: run { if (e != null) Log.w(TAG, message, e) else Log.w(TAG, message); Unit }
+    private fun logE(message: String, e: Throwable? = null) =
+        log?.e(TAG, message, e) ?: run { if (e != null) Log.e(TAG, message, e) else Log.e(TAG, message); Unit }
 
     fun init(context: Context) {
         RsContext.init(context.applicationContext)
         rsContext = RsContext().also { it.setDevicesChangedCallback(deviceListener) }
         rsContext?.queryDevices()?.use { devices ->
-            if (devices.deviceCount > 0) onEvent(CameraEvent.ATTACHED)
+            val count = devices.deviceCount
+            logI("init: $count dispositivo(s) RealSense na inicialização")
+            if (count > 0) onEvent(CameraEvent.ATTACHED)
         }
     }
 
@@ -113,11 +134,11 @@ class RsCameraManager(private val listener: Listener) {
                 try {
                     block()
                 } catch (e: Exception) {
-                    Log.e(TAG, "Erro no ciclo de vida do pipeline", e)
+                    logE("Erro no ciclo de vida do pipeline", e)
                 }
             }
         } catch (e: RejectedExecutionException) {
-            Log.w(TAG, "lifecycleExecutor encerrada, ignorando operação de ciclo de vida")
+            logW("lifecycleExecutor encerrada, ignorando operação de ciclo de vida")
         }
     }
 
@@ -133,6 +154,7 @@ class RsCameraManager(private val listener: Listener) {
         runOnLifecycle {
             val newState = nextState(state, event)
             if (newState == state) return@runOnLifecycle
+            logI("Estado: $state --($event)--> $newState")
             state = newState
             listener.onStateChanged(state)
             when {
@@ -149,6 +171,8 @@ class RsCameraManager(private val listener: Listener) {
             else null
         }
         profile = StreamProfiles.forUsbDescriptor(descriptor)
+        logI("Perfil USB: descriptor=$descriptor -> depth ${profile.depthWidth}x${profile.depthHeight}, " +
+            "color ${profile.colorWidth}x${profile.colorHeight} @ ${profile.fps}fps")
         listener.onUsbProfile(profile, descriptor)
     }
 
@@ -168,6 +192,7 @@ class RsCameraManager(private val listener: Listener) {
     private fun startStreaming(record: Boolean) {
         if (streaming) return
         detectProfile()
+        logI("Iniciando pipeline (record=$record)")
         try {
             val newPipeline = Pipeline()
             // Config só é necessário durante o start(); fechamos o handle nativo
@@ -175,11 +200,12 @@ class RsCameraManager(private val listener: Listener) {
             buildConfig(record).use { config -> newPipeline.start(config) }
             pipeline = newPipeline
         } catch (e: Exception) {
-            Log.e(TAG, "Falha ao iniciar pipeline", e)
+            logE("Falha ao iniciar pipeline", e)
             pipeline = null
             return
         }
         streaming = true
+        logI("Pipeline iniciado com sucesso (record=$record)")
         if (state == CameraState.CONNECTED) onEvent(CameraEvent.STREAM_STARTED)
         streamThread = Thread(::streamLoop, "rs-stream").also { it.start() }
     }
@@ -195,12 +221,12 @@ class RsCameraManager(private val listener: Listener) {
         try {
             pipeline?.stop() // fecha também o gravador do .bag, mantendo-o válido
         } catch (e: Exception) {
-            Log.w(TAG, "Erro ao parar pipeline", e)
+            logW("Erro ao parar pipeline", e)
         }
         try {
             pipeline?.close() // libera o handle nativo do Pipeline
         } catch (e: Exception) {
-            Log.w(TAG, "Erro ao fechar pipeline", e)
+            logW("Erro ao fechar pipeline", e)
         }
         pipeline = null
     }
@@ -214,6 +240,7 @@ class RsCameraManager(private val listener: Listener) {
     private fun streamLoop() {
         val colorizer = Colorizer()
         var frames = 0
+        var firstFrame = true
         var windowStart = System.currentTimeMillis()
         try {
             while (streaming) {
@@ -224,6 +251,10 @@ class RsCameraManager(private val listener: Listener) {
                         val colorized = frameSet.applyFilter(colorizer).releaseWith(fr)
                         previewView?.upload(colorized)
                     }
+                    if (firstFrame) {
+                        logI("Primeiro frame recebido — fluxo de dados ativo")
+                        firstFrame = false
+                    }
                     frames++
                     val now = System.currentTimeMillis()
                     if (now - windowStart >= 1000) {
@@ -233,7 +264,7 @@ class RsCameraManager(private val listener: Listener) {
                     }
                 } catch (e: Exception) {
                     // Inclui timeouts de waitForFrames(), esperados e benignos.
-                    if (streaming) Log.w(TAG, "Frame perdido: ${e.message}")
+                    if (streaming) logW("Frame perdido: ${e.message}")
                 }
             }
         } finally {
