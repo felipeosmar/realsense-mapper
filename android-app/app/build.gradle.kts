@@ -10,7 +10,12 @@ android {
     defaultConfig {
         applicationId = "br.senai.realsensemapper"
         minSdk = 26
-        targetSdk = 35
+        // targetSdk 33 (não 35) de propósito: o AAR do librealsense 2.54.2
+        // registra um BroadcastReceiver interno (detecção de plug/unplug USB)
+        // sem a flag RECEIVER_EXPORTED/NOT_EXPORTED. Com targetSdk >= 34 o
+        // Android 14 exige essa flag e lança SecurityException em RsContext.init.
+        // Como o receiver está dentro do AAR (binário), a saída é ficar em 33.
+        targetSdk = 33
         versionCode = 1
         versionName = "0.1"
     }
