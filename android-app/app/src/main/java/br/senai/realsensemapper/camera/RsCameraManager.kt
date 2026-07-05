@@ -132,6 +132,23 @@ class RsCameraManager(
     /** Modo de visualização atual (true = nuvem de pontos 3D). */
     fun isPointcloudMode(): Boolean = pointcloudMode
 
+    /**
+     * Descarta os GLFrames acumulados no renderer (UIDs de sessões anteriores) para não
+     * empilhar quadros a cada ciclo gravar/parar. Roda na GL thread (clear faz chamadas
+     * OpenGL) e sob previewLock (não pode correr com o upload). Como clear() zera o
+     * pointcloud interno, re-arma o modo atual em seguida.
+     */
+    private fun clearPreview() {
+        val view = previewView ?: return
+        val pc = pointcloudMode
+        view.queueEvent {
+            synchronized(previewLock) {
+                view.clear()
+                view.showPointcloud(pc)
+            }
+        }
+    }
+
     fun startRecording(file: File) {
         if (state != CameraState.STREAMING) return
         recordFile = file
@@ -276,6 +293,10 @@ class RsCameraManager(
         }
         pipeline = started
         streaming = true
+        // Cada (re)start cria streams com UIDs novos. O GLRenderer indexa mFrames por
+        // UID e nunca limpa entre sessões, então sem isto cada ciclo gravar/parar
+        // deixa um quadro "fantasma" empilhado. Limpa antes de novos frames chegarem.
+        clearPreview()
         if (state == CameraState.CONNECTED) onEvent(CameraEvent.STREAM_STARTED)
         streamThread = Thread(::streamLoop, "rs-stream").also { it.start() }
     }
@@ -288,6 +309,9 @@ class RsCameraManager(
         // o join abaixo garante que ela já saiu do loop antes de stop()/close().
         streamThread?.join(3000)
         streamThread = null
+        // Limpa os quadros na tela: sem um startStreaming subsequente (ex.: câmera
+        // desconectada) os últimos frames ficariam "fantasmas" empilhados no renderer.
+        clearPreview()
         try {
             pipeline?.stop() // fecha também o gravador do .bag, mantendo-o válido
         } catch (e: Exception) {
