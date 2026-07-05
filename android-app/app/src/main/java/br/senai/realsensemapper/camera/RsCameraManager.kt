@@ -17,7 +17,6 @@ import com.intel.realsense.librealsense.FrameReleaser
 import com.intel.realsense.librealsense.FrameSet
 import com.intel.realsense.librealsense.GLRsSurfaceView
 import com.intel.realsense.librealsense.Pipeline
-import com.intel.realsense.librealsense.Pointcloud
 import com.intel.realsense.librealsense.RsContext
 import com.intel.realsense.librealsense.StreamFormat
 import com.intel.realsense.librealsense.StreamType
@@ -65,6 +64,10 @@ class RsCameraManager(
     private var recordFile: File? = null
     // Modo de exibição do preview: false = imagem 2D; true = nuvem de pontos 3D.
     @Volatile private var pointcloudMode = false
+    // Serializa upload() (thread de streaming) com clear()/showPointcloud() (toggle):
+    // o GLRenderer tem um Pointcloud interno que o upload usa e o clear libera — sem
+    // esta exclusão mútua as duas threads causam use-after-free (SIGSEGV nativo).
+    private val previewLock = Any()
 
     private val deviceListener = object : DeviceListener {
         override fun onDeviceAttach() {
@@ -109,7 +112,20 @@ class RsCameraManager(
      */
     fun setPointcloudMode(enabled: Boolean) {
         pointcloudMode = enabled
-        previewView?.showPointcloud(enabled)
+        val view = previewView ?: return
+        // clear()/showPointcloud() fazem chamadas OpenGL (glDeleteTextures) que exigem o
+        // contexto GL: queueEvent as executa na GL thread. O previewLock impede que rodem
+        // concomitantes ao upload() da thread de streaming (que usa o mesmo Pointcloud
+        // interno) — sem isso há use-after-free. clear() descarta os GLFrames do modo
+        // anterior (senão o frame 2D antigo fica ladrilhado ao lado da nuvem) e vem ANTES
+        // de showPointcloud(): clear() zera o pointcloud interno, que o showPointcloud
+        // recria em seguida.
+        view.queueEvent {
+            synchronized(previewLock) {
+                view.clear()
+                view.showPointcloud(enabled)
+            }
+        }
         logI("Visualização: ${if (enabled) "nuvem de pontos 3D" else "imagem 2D"}")
     }
 
@@ -293,8 +309,6 @@ class RsCameraManager(
 
     private fun streamLoop() {
         val colorizer = Colorizer()
-        // Mapeia o color como textura dos pontos 3D (pontos coloridos, não cinza).
-        val pointcloud = Pointcloud(StreamType.COLOR)
         var frames = 0
         var firstFrame = true
         var windowStart = System.currentTimeMillis()
@@ -304,22 +318,28 @@ class RsCameraManager(
                     FrameReleaser().use { fr ->
                         val frameSet = pipeline?.waitForFrames(WAIT_FOR_FRAMES_TIMEOUT_MS)
                             ?.releaseWith(fr) ?: return
-                        if (pointcloudMode) {
-                            // Nuvem de pontos 3D: gera os pontos (com o color como textura)
-                            // e envia o frameset; o GLRsSurfaceView, em modo pointcloud,
-                            // renderiza em 3D e trata o giro pelo toque.
-                            val points = frameSet.applyFilter(pointcloud).releaseWith(fr)
-                            previewView?.upload(points)
-                        } else {
-                            val colorized = frameSet.applyFilter(colorizer).releaseWith(fr)
-                            // Exibe UM único stream 2D preenchendo o preview. Enviar o
-                            // frameset inteiro faz o GLRsSurfaceView ladrilhar todos os
-                            // frames (color + depth) lado a lado. Preferimos o color
-                            // (enquadramento natural); sem ele, o depth colorizado.
-                            val single = (firstOrNull(colorized, StreamType.COLOR)
-                                ?: firstOrNull(colorized, StreamType.DEPTH))?.releaseWith(fr)
-                            if (single != null) previewView?.upload(single)
-                            else previewView?.upload(colorized)
+                        // O lock serializa com o toggle de modo (clear/showPointcloud):
+                        // o Pointcloud interno do renderer não pode ser usado aqui
+                        // enquanto o clear() o libera na outra thread.
+                        synchronized(previewLock) {
+                            if (pointcloudMode) {
+                                // Nuvem de pontos 3D: envia o frameset BRUTO. Com
+                                // showPointcloud(true) o GLRsSurfaceView gera os pontos
+                                // internamente (color como textura) e desenha SÓ a nuvem —
+                                // frames de vídeo são ignorados. O giro é pelo toque. Não
+                                // pré-filtramos aqui para não duplicar o pipeline interno.
+                                previewView?.upload(frameSet)
+                            } else {
+                                // Exibe UM único stream 2D preenchendo o preview. Enviar o
+                                // frameset inteiro faz o GLRsSurfaceView ladrilhar todos os
+                                // frames (color + depth) lado a lado. Preferimos o color
+                                // (enquadramento natural); sem ele, o depth colorizado
+                                // (Z16 cru não é exibível diretamente pelo renderer).
+                                val colorized = frameSet.applyFilter(colorizer).releaseWith(fr)
+                                val single = (firstOrNull(colorized, StreamType.COLOR)
+                                    ?: firstOrNull(colorized, StreamType.DEPTH))?.releaseWith(fr)
+                                if (single != null) previewView?.upload(single)
+                            }
                         }
                     }
                     if (firstFrame) {
@@ -339,9 +359,7 @@ class RsCameraManager(
                 }
             }
         } finally {
-            // fecha os recursos JNI mesmo com return non-local
-            colorizer.close()
-            pointcloud.close()
+            colorizer.close() // fecha o recurso JNI mesmo com return non-local
         }
     }
 

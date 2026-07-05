@@ -35,6 +35,7 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
     private lateinit var warnText: TextView
     private lateinit var recordInfo: TextView
     private lateinit var recordButton: FloatingActionButton
+    private lateinit var preview: GLRsSurfaceView
 
     private val ui = Handler(Looper.getMainLooper())
     private var recordingFile: File? = null
@@ -72,7 +73,8 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
 
         repo = ScanRepository(File(getExternalFilesDir(null), "scans"))
         camera = RsCameraManager(this, logger)
-        camera.attachPreview(findViewById<GLRsSurfaceView>(R.id.preview))
+        preview = findViewById(R.id.preview)
+        camera.attachPreview(preview)
         ensureCameraPermissionThenInit()
 
         recordButton.setOnClickListener { toggleRecording() }
@@ -87,6 +89,7 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
             visibility = View.VISIBLE
             setOnClickListener {
                 val enable3d = !camera.isPointcloudMode()
+                setPreviewSquare(enable3d)
                 camera.setPointcloudMode(enable3d)
                 alpha = if (enable3d) 1f else 0.6f
                 Snackbar.make(recordButton,
@@ -103,6 +106,32 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
         }
 
         ui.post(ticker)
+    }
+
+    /**
+     * A nuvem de pontos usa projeção ortográfica quadrada (no AAR), então um viewport
+     * retangular a estica. No modo 3D deixamos o preview quadrado (1:1, centralizado)
+     * para não distorcer; no 2D volta a preencher a tela.
+     */
+    private fun setPreviewSquare(square: Boolean) {
+        val lp = preview.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+        lp.dimensionRatio = if (square) "1:1" else null
+        preview.layoutParams = lp
+    }
+
+    /** Abre o menu do Android para enviar o .bag (Drive, Quick Share, KDE Connect...). */
+    private fun shareScan(file: File) {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            this, "br.senai.realsensemapper.fileprovider", file)
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "application/octet-stream"
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            putExtra(android.content.Intent.EXTRA_SUBJECT, file.name)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // clipData garante que o app de destino receba a permissão de leitura.
+            clipData = android.content.ClipData.newRawUri(file.name, uri)
+        }
+        startActivity(android.content.Intent.createChooser(send, getString(R.string.action_share)))
     }
 
     private fun ensureCameraPermissionThenInit() {
@@ -141,11 +170,15 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
             }
             CameraState.RECORDING -> {
                 camera.stopRecording()
-                recordingFile?.let {
-                    logger.i("Rec", "Gravação parada: ${it.name} (${formatBytes(it.length())})")
+                recordingFile?.let { saved ->
+                    logger.i("Rec", "Gravação parada: ${saved.name} (${formatBytes(saved.length())})")
+                    // Atalho: compartilhar o .bag na hora (sem fio) para enviar ao PC.
                     Snackbar.make(recordButton,
-                        getString(R.string.msg_scan_saved, it.name),
-                        Snackbar.LENGTH_LONG).show()
+                        getString(R.string.msg_scan_saved, saved.name),
+                        Snackbar.LENGTH_LONG)
+                        .setDuration(7000)
+                        .setAction(R.string.action_share) { shareScan(saved) }
+                        .show()
                 }
                 recordingFile = null
             }
