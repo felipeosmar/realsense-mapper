@@ -12,9 +12,12 @@ import com.intel.realsense.librealsense.CameraInfo
 import com.intel.realsense.librealsense.Colorizer
 import com.intel.realsense.librealsense.Config
 import com.intel.realsense.librealsense.DeviceListener
+import com.intel.realsense.librealsense.Frame
 import com.intel.realsense.librealsense.FrameReleaser
+import com.intel.realsense.librealsense.FrameSet
 import com.intel.realsense.librealsense.GLRsSurfaceView
 import com.intel.realsense.librealsense.Pipeline
+import com.intel.realsense.librealsense.Pointcloud
 import com.intel.realsense.librealsense.RsContext
 import com.intel.realsense.librealsense.StreamFormat
 import com.intel.realsense.librealsense.StreamType
@@ -60,6 +63,8 @@ class RsCameraManager(
     @Volatile private var streaming = false
     private var profile: StreamProfile = StreamProfiles.USB2
     private var recordFile: File? = null
+    // Modo de exibição do preview: false = imagem 2D; true = nuvem de pontos 3D.
+    @Volatile private var pointcloudMode = false
 
     private val deviceListener = object : DeviceListener {
         override fun onDeviceAttach() {
@@ -97,6 +102,19 @@ class RsCameraManager(
             if (state == CameraState.CONNECTED) startStreaming(record = false)
         }
     }
+
+    /**
+     * Alterna a visualização entre imagem 2D e nuvem de pontos 3D. No modo 3D o
+     * próprio GLRsSurfaceView renderiza os pontos e trata o giro pelo toque.
+     */
+    fun setPointcloudMode(enabled: Boolean) {
+        pointcloudMode = enabled
+        previewView?.showPointcloud(enabled)
+        logI("Visualização: ${if (enabled) "nuvem de pontos 3D" else "imagem 2D"}")
+    }
+
+    /** Modo de visualização atual (true = nuvem de pontos 3D). */
+    fun isPointcloudMode(): Boolean = pointcloudMode
 
     fun startRecording(file: File) {
         if (state != CameraState.STREAMING) return
@@ -275,6 +293,8 @@ class RsCameraManager(
 
     private fun streamLoop() {
         val colorizer = Colorizer()
+        // Mapeia o color como textura dos pontos 3D (pontos coloridos, não cinza).
+        val pointcloud = Pointcloud(StreamType.COLOR)
         var frames = 0
         var firstFrame = true
         var windowStart = System.currentTimeMillis()
@@ -284,8 +304,23 @@ class RsCameraManager(
                     FrameReleaser().use { fr ->
                         val frameSet = pipeline?.waitForFrames(WAIT_FOR_FRAMES_TIMEOUT_MS)
                             ?.releaseWith(fr) ?: return
-                        val colorized = frameSet.applyFilter(colorizer).releaseWith(fr)
-                        previewView?.upload(colorized)
+                        if (pointcloudMode) {
+                            // Nuvem de pontos 3D: gera os pontos (com o color como textura)
+                            // e envia o frameset; o GLRsSurfaceView, em modo pointcloud,
+                            // renderiza em 3D e trata o giro pelo toque.
+                            val points = frameSet.applyFilter(pointcloud).releaseWith(fr)
+                            previewView?.upload(points)
+                        } else {
+                            val colorized = frameSet.applyFilter(colorizer).releaseWith(fr)
+                            // Exibe UM único stream 2D preenchendo o preview. Enviar o
+                            // frameset inteiro faz o GLRsSurfaceView ladrilhar todos os
+                            // frames (color + depth) lado a lado. Preferimos o color
+                            // (enquadramento natural); sem ele, o depth colorizado.
+                            val single = (firstOrNull(colorized, StreamType.COLOR)
+                                ?: firstOrNull(colorized, StreamType.DEPTH))?.releaseWith(fr)
+                            if (single != null) previewView?.upload(single)
+                            else previewView?.upload(colorized)
+                        }
                     }
                     if (firstFrame) {
                         logI("Primeiro frame recebido — fluxo de dados ativo")
@@ -304,7 +339,17 @@ class RsCameraManager(
                 }
             }
         } finally {
-            colorizer.close() // fecha o recurso JNI mesmo com return non-local
+            // fecha os recursos JNI mesmo com return non-local
+            colorizer.close()
+            pointcloud.close()
         }
     }
+
+    /** Extrai o primeiro frame de um tipo, ou null se o stream não estiver presente. */
+    private fun firstOrNull(set: FrameSet, type: StreamType): Frame? =
+        try {
+            set.first(type)
+        } catch (e: Exception) {
+            null
+        }
 }

@@ -14,6 +14,9 @@
     <string name="btn_stop">Parar</string>
     <string name="title_scans">Scans gravados</string>
     <string name="scans_empty">Nenhum scan gravado ainda.\nConecte a D435i e toque em Gravar.</string>
+    <string name="action_toggle_3d">Alternar entre imagem 2D e nuvem de pontos 3D</string>
+    <string name="msg_mode_3d">Nuvem de pontos 3D — arraste para girar</string>
+    <string name="msg_mode_2d">Imagem 2D</string>
     <string name="action_share">Compartilhar</string>
     <string name="action_delete">Apagar</string>
     <string name="msg_scan_saved">Scan salvo: %1$s</string>

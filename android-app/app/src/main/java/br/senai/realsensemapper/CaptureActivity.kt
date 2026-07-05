@@ -83,6 +83,18 @@ class CaptureActivity : AppCompatActivity(), RsCameraManager.Listener {
                     ScansActivity::class.java))
             }
         }
+        findViewById<FloatingActionButton>(R.id.modeButton).apply {
+            visibility = View.VISIBLE
+            setOnClickListener {
+                val enable3d = !camera.isPointcloudMode()
+                camera.setPointcloudMode(enable3d)
+                alpha = if (enable3d) 1f else 0.6f
+                Snackbar.make(recordButton,
+                    if (enable3d) R.string.msg_mode_3d else R.string.msg_mode_2d,
+                    Snackbar.LENGTH_SHORT).show()
+            }
+            alpha = 0.6f
+        }
 
         // Mostra onde os logs deste teste ficam gravados (recuperáveis por MTP).
         logger.logFile?.let {

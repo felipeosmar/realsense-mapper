@@ -104,6 +104,22 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Alterna a visualização entre imagem 2D e nuvem de pontos 3D (à esquerda) -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/modeButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="28dp"
+        android:visibility="gone"
+        android:contentDescription="@string/action_toggle_3d"
+        app:srcCompat="@drawable/ic_scan_cube"
+        app:fabSize="mini"
+        app:backgroundTint="#33FFFFFF"
+        app:tint="#FFFFFF"
+        app:layout_constraintTop_toTopOf="@id/recordButton"
+        app:layout_constraintBottom_toBottomOf="@id/recordButton"
+        app:layout_constraintStart_toStartOf="parent" />
+
     <!-- Ação secundária: lista de scans (mini FAB à direita) -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/scansButton"
